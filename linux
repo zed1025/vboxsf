@@ -1,0 +1,1485 @@
+# simple
+// Client.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <arpa/inet.h>
+
+#define MAXIN 20
+#define MAXOUT 20
+
+char *getreq(char *inbuf, int len) {
+  /* Get request char stream */
+  printf("REQ: ");              /* prompt */
+  memset(inbuf,0,len);          /* clear for good measure */
+  return fgets(inbuf,len,stdin); /* read up to a EOL */
+}
+
+void client(int sockfd) {
+  int n;
+  char sndbuf[MAXIN]; char rcvbuf[MAXOUT];
+  getreq(sndbuf, MAXIN);        /* prompt */
+  while (strlen(sndbuf) > 0) {
+    write(sockfd, sndbuf, strlen(sndbuf)); /* send */
+
+    printf("Wrote message: %s\n",sndbuf);
+    
+    memset(rcvbuf,0,MAXOUT);               /* clear */
+    n=read(sockfd, rcvbuf, MAXOUT-1);      /* receive */
+    printf("Received reply: %d",n);
+    
+    write(STDOUT_FILENO, rcvbuf, n);	      /* echo */
+    getreq(sndbuf, MAXIN);                 /* prompt */
+  }
+}
+
+// Server address
+//struct hostent *buildServerAddr(struct sockaddr_in *serv_addr,
+void buildServerAddr(struct sockaddr_in *serv_addr,
+	char *serverIP, int portno) {
+  /* Construct an address for remote server */
+  memset((char *) serv_addr, 0, sizeof(struct sockaddr_in));
+  serv_addr->sin_family = AF_INET;
+  inet_aton(serverIP, &(serv_addr->sin_addr));
+  serv_addr->sin_port = htons(portno);
+ }
+
+
+int main() {
+	//Client protocol
+	char *serverIP = "127.0.0.1";
+	int sockfd, portno = 5033;
+	struct sockaddr_in serv_addr;
+	
+	buildServerAddr(&serv_addr, serverIP, portno);
+
+	/* Create a TCP socket */
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+	/* Connect to server on port */
+	connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
+	printf("Connected to %s:%d\n",serverIP, portno);
+
+	/* Carry out Client-Server protocol */
+	client(sockfd);
+
+	/* Clean up on termination */
+	close(sockfd);
+}
+
+
+// Server.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <string.h>
+#define MAXREQ 20
+#define MAXQUEUE 5
+
+void server(int consockfd) {
+  char reqbuf[MAXREQ];
+  int n;
+  while (1) {                   
+    memset(reqbuf,0, MAXREQ);
+    n = read(consockfd,reqbuf,MAXREQ-1); /* Recv */
+    printf("Recvd msg:%s\n", reqbuf);
+    if (n <= 0) return;
+    n = write(consockfd, reqbuf, strlen(reqbuf)); /* echo*/
+  }
+}
+
+int main() {
+
+int lstnsockfd, consockfd, clilen, portno = 5033;
+struct sockaddr_in serv_addr, cli_addr;
+
+ memset((char *) &serv_addr,0, sizeof(serv_addr));
+ serv_addr.sin_family      = AF_INET;
+ serv_addr.sin_addr.s_addr = INADDR_ANY;
+ serv_addr.sin_port        = htons(portno);
+
+// Server protocol
+/* Create Socket to receive requests*/
+lstnsockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+/* Bind socket to port */
+bind(lstnsockfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr));
+printf("Bounded to port\n");
+while (1) {
+   printf("Listening for incoming connections\n");
+
+/* Listen for incoming connections */
+   listen(lstnsockfd, MAXQUEUE); 
+
+   //clilen = sizeof(cl_addr);
+
+/* Accept incoming connection, obtaining a new socket for it */
+   consockfd = accept(lstnsockfd, (struct sockaddr *) &cli_addr,       
+                      &clilen);
+   printf("Accepted connection\n");
+
+   server(consockfd);
+
+   close(consockfd);
+  }
+close(lstnsockfd);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# file transfer only
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+#define SIZE 1024
+ 
+void send_file(FILE *fp, int sockfd){
+  int n;
+  char data[SIZE] = {0};
+ 
+  while(fgets(data, SIZE, fp) != NULL) {
+    if (send(sockfd, data, sizeof(data), 0) == -1) {
+      perror("[-]Error in sending file.");
+      exit(1);
+    }
+    bzero(data, SIZE);
+  }
+}
+ 
+int main(){
+  char *ip = "127.0.0.1";
+  int port = 8080;
+  int e;
+ 
+  int sockfd;
+  struct sockaddr_in server_addr;
+  FILE *fp;
+  char *filename = "hello.txt";
+ 
+  sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  if(sockfd < 0) {
+    perror("[-]Error in socket");
+    exit(1);
+  }
+  printf("[+]Server socket created successfully.\n");
+ 
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = port;
+  server_addr.sin_addr.s_addr = inet_addr(ip);
+ 
+  e = connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr));
+  if(e == -1) {
+    perror("[-]Error in socket");
+    exit(1);
+  }
+ printf("[+]Connected to Server.\n");
+ 
+  fp = fopen(filename, "r");
+  if (fp == NULL) {
+    perror("[-]Error in reading file.");
+    exit(1);
+  }
+ 
+  send_file(fp, sockfd);
+  printf("[+]File data sent successfully.\n");
+ 
+  printf("[+]Closing the connection.\n");
+  close(sockfd);
+ 
+  return 0;
+}
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <arpa/inet.h>
+#define SIZE 1024
+ 
+void write_file(int sockfd){
+  int n;
+  FILE *fp;
+  char *filename = "recv.txt";
+  char buffer[SIZE];
+ 
+  fp = fopen(filename, "w");
+  while (1) {
+    n = recv(sockfd, buffer, SIZE, 0);
+    if (n <= 0){
+      break;
+      return;
+    }
+    fprintf(fp, "%s", buffer);
+    bzero(buffer, SIZE);
+  }
+  return;
+}
+ 
+int main(){
+  char *ip = "127.0.0.1";
+  int port = 8080;
+  int e;
+ 
+  int sockfd, new_sock;
+  struct sockaddr_in server_addr, new_addr;
+  socklen_t addr_size;
+  char buffer[SIZE];
+ 
+  sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  if(sockfd < 0) {
+    perror("[-]Error in socket");
+    exit(1);
+  }
+  printf("[+]Server socket created successfully.\n");
+ 
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = port;
+  server_addr.sin_addr.s_addr = inet_addr(ip);
+ 
+  e = bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr));
+  if(e < 0) {
+    perror("[-]Error in bind");
+    exit(1);
+  }
+  printf("[+]Binding successfull.\n");
+ 
+  if(listen(sockfd, 10) == 0){
+ printf("[+]Listening....\n");
+ }else{
+ perror("[-]Error in listening");
+    exit(1);
+ }
+ 
+  addr_size = sizeof(new_addr);
+  new_sock = accept(sockfd, (struct sockaddr*)&new_addr, &addr_size);
+  write_file(new_sock);
+  printf("[+]Data written in the file successfully.\n");
+ 
+  return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+#bhp
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<math.h>
+#include<sys/socket.h>
+#include<sys/types.h>
+#include<unistd.h>
+#include<time.h>
+#include<dirent.h>
+#include<arpa/inet.h>
+#include<netinet/in.h>
+#include<netdb.h>
+
+#define MAXIN 1024
+
+struct header {
+  char mode;
+  int length;
+  int client_id;
+};
+
+void tostring(char str[], int num) {
+    int i, rem, len = 0, n;
+ 
+    n = num;
+    while (n != 0) {
+        len++;
+        n /= 10;
+    }
+    for (i = 0; i < len; i++) {
+        rem = num % 10;
+        num = num / 10;
+        str[len - (i + 1)] = rem + '0';
+    }
+    str[len] = '\0';
+}
+
+void ls(int sockfd, struct header head) {
+  char reqbuf[MAXIN];
+  int n;
+
+  head.length = strlen(reqbuf);
+  write(sockfd, (void *)&head, sizeof(head));
+
+  memset(reqbuf,0,MAXIN);
+  while (1) {
+    n = recv(sockfd, reqbuf, sizeof(reqbuf), 0);
+    if (reqbuf[n] == '\0' && reqbuf[n - 1] == '\0') {
+      printf("%s", reqbuf);
+      return;
+    }
+    printf("%s", reqbuf);
+    memset(reqbuf, 0, sizeof((reqbuf)));
+  }
+}
+
+void receiveFile(int sockfd, struct header head) {
+  char reqbuf[MAXIN];
+  int n;
+  FILE *fp;
+  char filename[110];
+  memset(filename, 0, sizeof(filename));
+
+  head.length = MAXIN;
+  write(sockfd, (void *)&head, sizeof(head));
+
+  printf("Enter file path :- ");
+  scanf(" %s", filename);
+
+  write(sockfd, filename, strlen(filename));
+
+  fp = fopen(filename, "w");
+  if (fp == NULL) {
+    printf("Error in writing to file.");
+    exit(1);
+  }
+
+  while (1) {
+    memset(reqbuf, 0, MAXIN);
+    n = recv(sockfd, reqbuf, MAXIN, 0);
+    if (n <= 1) {
+      if (reqbuf[0] == '\0') {
+        break;
+      }
+    }
+    fprintf(fp, "%s", reqbuf);
+  }
+  printf("file received\n");
+  fclose(fp);
+}
+
+void sentFile(int sockfd, struct header head) {
+  char sndbuf[MAXIN];
+  int n;
+  FILE *fp;
+  char filename[32];
+  char filename_temp[32];
+
+  head.length = MAXIN;
+  write(sockfd, (void *)&head, sizeof(head));
+
+  printf("Enter file path :- ");
+  scanf("%s", filename);
+  strcpy(filename_temp, filename);
+  srand(time(0));
+  int t = rand()%10000;
+  char arr[50];
+  memset(arr, 0, strlen(arr));
+  // tostring(arr,t);
+  sprintf(arr, "%d", t);
+  char *token = strtok(filename_temp, ".");
+  strcat(filename_temp, "_");
+  strcat(filename_temp, arr);
+  strcat(filename_temp, ".txt");
+  send(sockfd, filename_temp, sizeof(filename_temp), 0);
+
+  fp = fopen(filename, "r");
+  if (fp == NULL) {
+    printf("[-]Error in reading file.");
+    exit(1);
+  }
+
+  while (fgets(sndbuf, MAXIN, fp) != NULL) {
+    if (send(sockfd, sndbuf, sizeof(sndbuf), 0) == -1) {
+      printf("[-]Error in sending file.");
+      exit(1);
+    }
+    memset(sndbuf, 0, MAXIN);
+  }
+  send(sockfd, "\0", sizeof(char), 0); //indicating end of file trans.
+  fclose(fp);
+  printf("File Sent SuccessFully!!!\n");
+}
+
+void client(int sockfd) {
+  struct header head;
+  srand(time(0));
+  long long id;
+  printf("Do you have a client id[y/n]: ");
+  char ch;
+  scanf("%c", &ch);
+  
+  if(ch == 'y') {
+    printf("Enter client id: ");
+    scanf(" %lld", &id);
+  } else {
+    id =  rand();
+    printf("Joining with client id: %lld", id);
+  }
+
+  head.client_id = id;
+  while (1) {
+    printf("\n+ Echo Messages[1] \n+ File Upload[2] \n+ File Download[3]\n+ List Files on Server[4]\n");
+    scanf(" %c", &head.mode);
+
+    if (head.mode == '1') {
+      char sndbuf[MAXIN], reqbuf[MAXIN];
+      
+      head.length = MAXIN;
+      write(sockfd, (void *)&head, sizeof(head));
+      
+      printf("> ");                   /* prompt */
+      memset(sndbuf, 0, sizeof(sndbuf)); /* clear for good measure */
+      getchar();
+      fgets(sndbuf, sizeof(sndbuf), stdin); /* read up to a EOL */
+      write(sockfd, sndbuf, strlen(sndbuf));
+      memset(reqbuf, 0, sizeof(reqbuf));
+      read(sockfd, reqbuf, strlen(sndbuf)); /* echo*/
+      printf("msg rcvd from server : %s\n", reqbuf);
+    } else if (head.mode == '2') {
+      sentFile(sockfd, head);
+    } else if (head.mode == '3') {
+      receiveFile(sockfd, head);
+    } else {
+      ls(sockfd, head);
+    } 
+  }
+}
+
+void buildServerAddr(struct sockaddr_in *serv_addr, char *serverIP, int portno) {
+  /* Construct an address for remote server */
+  memset((char *)serv_addr, 0, sizeof(struct sockaddr_in));
+  serv_addr->sin_family = AF_INET;
+  inet_aton(serverIP, &(serv_addr->sin_addr));
+  serv_addr->sin_port = htons(portno);
+}
+
+int main() {
+  // Client protocol
+  char *serverIP = "127.0.0.1";
+  int sockfd, portno = 5033, err;
+  struct sockaddr_in serv_addr;
+
+  buildServerAddr(&serv_addr, serverIP, portno);
+
+  /* Create a TCP socket */
+  sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  if (sockfd == -1) {
+    printf("[-]Error in creating socket.");
+    exit(1);
+  }
+
+  /* Connect to server on port */
+  err = connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+  if (err == -1) {
+    printf("[-]Error in connecting.");
+    exit(1);
+  }
+  printf("Connected to %s:%d\n", serverIP, portno);
+
+  /* Carry out Client-Server protocol */
+  client(sockfd);
+
+  /* Clean up on termination */
+  close(sockfd);
+}
+
+
+
+
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<unistd.h>
+#include<time.h>
+#include<dirent.h>
+#include<sys/stat.h>
+#include<sys/types.h>
+#include<netinet/in.h>
+#include<netdb.h>
+#define MAXREQ 1024
+#define MAXQUEUE 5
+
+struct header {
+  char mode;
+  int length;
+  int client_id;
+};
+
+void checkClient(int consockfd, char *fulldir, int flag, struct header head) {
+  char direc[100];
+  struct stat st = {0};
+
+  sprintf(direc, "%d", head.client_id);
+  strcpy(fulldir, "./");
+  strcat(fulldir, direc);
+
+  if (stat(fulldir, &st) == -1) {
+    mkdir(fulldir, 0700);
+  }
+
+  if (flag == 1) {
+    char filename[100];
+    memset(filename, 0, sizeof(filename));
+    recv(consockfd, filename, 100, 0);
+    strcat(fulldir, "/");
+    strcat(fulldir, filename);
+  }
+}
+
+void ls(int consockfd, struct header head) {
+  DIR *d;
+  struct dirent *dir;
+  char fulldir[100];
+
+  checkClient(consockfd, fulldir, 0, head);
+
+  d = opendir(fulldir);
+
+  if (d) {
+    while ((dir = readdir(d)) != NULL) {
+      send(consockfd, dir->d_name, strlen(dir->d_name), 0);
+      send(consockfd, "\t", sizeof(char), 0);
+    }
+    closedir(d);
+    send(consockfd, "\0", sizeof(char), 0);
+  } else {
+    printf("[-]Error opening directory");
+  }
+}
+
+void sentFile(int consockfd, struct header head) {
+  char sndbuf[MAXREQ];
+  int n;
+  FILE *fp;
+  char fpath[60];
+
+  checkClient(consockfd, fpath, 1, head);
+
+  fp = fopen(fpath, "r");
+  if (fp == NULL) {
+    exit(1);
+  }
+
+  while (fgets(sndbuf, MAXREQ, fp) != NULL) {
+    if (send(consockfd, sndbuf, sizeof(sndbuf), 0) == -1) {
+      return;
+    }
+    memset(sndbuf, 0, MAXREQ);
+  }
+  send(consockfd, "\0", sizeof(char), 0);
+
+  fclose(fp);
+  printf("File Sent SuccessFully!!!\n");
+}
+
+void receiveFile(int consockfd, struct header head) {
+  char reqbuf[MAXREQ];
+  int n;
+  FILE *fp;
+  char fpath[120];
+
+  checkClient(consockfd, fpath, 1, head);
+  fp = fopen(fpath, "w");
+  if (fp == NULL) {
+    return;
+  }
+
+  while (1) {
+    memset(reqbuf, 0,MAXREQ);
+    n = recv(consockfd, reqbuf, MAXREQ, 0);
+    if (n <= 1) {
+      if (reqbuf[0] == '\0') {
+        break;
+      }
+    }
+    fprintf(fp, "%s", reqbuf);
+  }
+  printf("Client %d : File Received\n", head.client_id);
+  fclose(fp);
+}
+
+void server(int consockfd) {
+  struct header head;
+
+  while (1) {
+    read(consockfd, &head, sizeof(head));
+    printf("[%d]: \n", head.client_id);
+
+    if (head.mode == '1') {
+      char reqbuf[MAXREQ];
+      memset(reqbuf, 0, MAXREQ);
+      recv(consockfd, reqbuf, head.length, 0);
+      printf("[%d](received): %s\n", head.client_id, reqbuf);
+      write(consockfd, reqbuf, strlen(reqbuf)); /* echo*/
+    } else if (head.mode == '2') {
+      receiveFile(consockfd, head);
+    } else if (head.mode == '3') {
+      sentFile(consockfd, head);
+    } else {
+      ls(consockfd, head);
+    } 
+    memset(&head, 0, sizeof(head));
+  }
+}
+
+int main() {
+  // int lower = 1025, upper = 65535;
+  // srand(time(0));
+  // int portno = (rand() % (upper - lower + 1)) + lower;
+  int lstnsockfd, consockfd, err, portno=5033;
+  struct sockaddr_in serv_addr, cli_addr;
+  socklen_t clilen;
+
+  memset((char *)&serv_addr, 0, sizeof(serv_addr));
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_addr.s_addr = INADDR_ANY;
+  serv_addr.sin_port = htons(portno);
+
+  lstnsockfd = socket(AF_INET, SOCK_STREAM, 0);
+  if (lstnsockfd == -1) {
+    printf("[-]Error in creating socket.");
+    exit(1);
+  }
+
+  err = bind(lstnsockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+  if (err == -1) {
+    printf("[-]Error in binding to the port.");
+    exit(1);
+  }
+
+  printf("Bounded to port\n");
+  while (1) {
+    printf("Listening for incoming connections\n");
+
+    err = listen(lstnsockfd, MAXQUEUE);
+    if (err == -1) {
+      printf("[-]Error in listning.");
+      exit(1);
+    }
+
+    consockfd = accept(lstnsockfd, (struct sockaddr *)&cli_addr, &clilen);
+    if (consockfd == -1) {
+      printf("[-]Error in accepting connection.");
+      exit(1);
+    }
+    printf("Accepted connection\n");
+
+    if (fork() == 0) {
+      close(lstnsockfd);
+      server(consockfd);
+      close(consockfd);
+    } 
+    close(consockfd);
+  }
+  close(lstnsockfd);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Network topology
+//
+//       n1 ------ n2
+//            p2p
+//
+// - UDP flows from n1 to n2
+
+#include <fstream>
+#include "ns3/core-module.h"
+#include "ns3/point-to-point-module.h"
+#include "ns3/applications-module.h"
+#include "ns3/internet-module.h"
+#include "ns3/flow-monitor-module.h"
+
+using namespace ns3;
+
+NS_LOG_COMPONENT_DEFINE ("Lab1");
+
+
+int main (int argc, char *argv[])
+{
+  double lat = 2.0;
+  uint64_t rate = 5000000; // Data rate in bps
+  double interval = 0;
+
+  CommandLine cmd;
+  cmd.AddValue ("latency", "P2P link Latency in miliseconds", lat);
+  cmd.AddValue ("rate", "P2P data rate in bps", rate);
+  cmd.AddValue ("interval", "UDP client packet interval", interval);
+
+  cmd.Parse (argc, argv);
+
+//
+// Enable logging for UdpClient and UdpServer
+//
+//  LogComponentEnable ("UdpClient", LOG_LEVEL_INFO);
+//  LogComponentEnable ("UdpServer", LOG_LEVEL_INFO);
+
+//
+// Explicitly create the nodes required by the topology (shown above).
+//
+  NS_LOG_INFO ("Create nodes.");
+  NodeContainer n;
+  n.Create (3);
+
+  NS_LOG_INFO ("Create channels.");
+//
+// Explicitly create the channels required by the topology (shown above).
+//
+  PointToPointHelper p2p;
+  p2p.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (lat)));
+  p2p.SetDeviceAttribute ("DataRate", DataRateValue (DataRate (rate)));
+  p2p.SetDeviceAttribute ("Mtu", UintegerValue (1400));
+  NetDeviceContainer dev = p2p.Install (n.Get(0), n.Get(1));
+  NetDeviceContainer dev2 = p2p.Install (n.Get(1), n.Get(2));
+
+//
+// We've got the "hardware" in place.  Now we need to add IP addresses.
+//
+
+//
+// Install Internet Stack
+//
+  InternetStackHelper internet;
+  internet.Install (n);
+  Ipv4AddressHelper ipv4;
+
+  NS_LOG_INFO ("Assign IP Addresses.");
+  ipv4.SetBase ("10.1.1.0", "255.255.255.0");
+  Ipv4InterfaceContainer i = ipv4.Assign (dev);
+
+  ipv4.SetBase ("10.1.2.0", "255.255.255.0");
+  Ipv4InterfaceContainer i2 = ipv4.Assign (dev2);
+
+
+  Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
+
+  NS_LOG_INFO ("Create Applications.");
+//
+// Create one udpServer application on node one.
+//
+  uint16_t port1 = 8000; // Need different port numbers to ensure there is no conflict
+  uint16_t port2 = 8001;
+  UdpServerHelper server1 (port1);
+  UdpServerHelper server2 (port2);
+  ApplicationContainer apps;
+  apps = server1.Install (n.Get (2));
+  apps = server2.Install (n.Get (2));
+
+  apps.Start (Seconds (1.0));
+  apps.Stop (Seconds (10.0));
+
+//
+// Create one UdpClient application to send UDP datagrams from node zero to
+// node one.
+//
+  uint32_t MaxPacketSize = 1024;
+  Time interPacketInterval = Seconds (interval);
+  uint32_t maxPacketCount = 320;
+  UdpClientHelper client1 (i2.GetAddress (1), port1);
+  UdpClientHelper client2 (i2.GetAddress (1), port2);
+
+  client1.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
+  client1.SetAttribute ("Interval", TimeValue (interPacketInterval));
+  client1.SetAttribute ("PacketSize", UintegerValue (MaxPacketSize));
+
+  client2.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
+  client2.SetAttribute ("Interval", TimeValue (interPacketInterval));
+  client2.SetAttribute ("PacketSize", UintegerValue (MaxPacketSize));
+
+  apps = client1.Install (n.Get (0));
+  apps = client2.Install (n.Get (0));
+
+  apps.Start (Seconds (2.0));
+  apps.Stop (Seconds (10.0));
+
+
+//
+// Tracing
+//
+  AsciiTraceHelper ascii;
+  p2p.EnableAscii(ascii.CreateFileStream ("lab-1.tr"), dev);
+  p2p.EnablePcap("lab-1", dev, false);
+
+//
+// Calculate Throughput using Flowmonitor
+//
+  FlowMonitorHelper flowmon;
+  Ptr<FlowMonitor> monitor = flowmon.InstallAll();
+
+
+//
+// Now, do the actual simulation.
+//
+  NS_LOG_INFO ("Run Simulation.");
+  Simulator::Stop (Seconds(11.0));
+  Simulator::Run ();
+
+  monitor->CheckForLostPackets ();
+
+  Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
+  std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats ();
+  for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
+    {
+	  Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
+      if ((t.sourceAddress=="10.1.1.1" && t.destinationAddress == "10.1.2.2"))
+      {
+          std::cout << "Flow " << i->first  << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\n";
+          std::cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
+          std::cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
+      	  std::cout << "  Throughput: " << i->second.rxBytes * 8.0 / (i->second.timeLastRxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds())/1024/1024  << " Mbps\n";
+      }
+     }
+
+  monitor->SerializeToXmlFile("lab-1.flowmon", true, true);
+
+  Simulator::Destroy ();
+  NS_LOG_INFO ("Done.");
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+	LAB Assignment #2
+    1. Create a simple dumbbell topology, two client Node1 and Node2 on
+    the left side of the dumbbell and server nodes Node3 and Node4 on the
+    right side of the dumbbell. Let Node5 and Node6 form the bridge of the
+    dumbbell. Use point to point links.
+
+    2. Install a TCP socket instance on Node1 that will connect to Node3.
+
+    3. Install a UDP socket instance on Node2 that will connect to Node4.
+
+    4. Start the TCP application at time 1s.
+
+    5. Start the UDP application at time 20s at rate Rate1 such that it clogs
+    half the dumbbell bridge's link capacity.
+
+    6. Increase the UDP application's rate at time 30s to rate Rate2
+    such that it clogs the whole of the dumbbell bridge's capacity.
+
+    7. Use the ns-3 tracing mechanism to record changes in congestion window
+    size of the TCP instance over time. Use gnuplot/matplotlib to visualise plots of cwnd vs time.
+
+    8. Mark points of fast recovery and slow start in the graphs.
+
+    9. Perform the above experiment for TCP variants Tahoe, Reno and New Reno,
+    all of which are available with ns-3.
+
+	Solution by: Konstantinos Katsaros (K.Katsaros@surrey.ac.uk)
+	based on fifth.cc
+*/
+
+// Network topology
+//
+//       n0 ---+      +--- n2
+//             |      |
+//             n4 -- n5
+//             |      |
+//       n1 ---+      +--- n3
+//
+// - All links are P2P with 500kb/s and 2ms
+// - TCP flow form n0 to n2
+// - UDP flow from n1 to n3
+
+#include <fstream>
+#include <string>
+#include "ns3/core-module.h"
+#include "ns3/network-module.h"
+#include "ns3/point-to-point-module.h"
+#include "ns3/applications-module.h"
+#include "ns3/internet-module.h"
+#include "ns3/flow-monitor-module.h"
+#include "ns3/ipv4-global-routing-helper.h"
+#include "ns3/stats-module.h"
+
+//added this, still getting error -> fixed
+#include "ns3/flow-monitor.h"
+#include "ns3/flow-monitor-helper.h"
+
+using namespace ns3;
+
+NS_LOG_COMPONENT_DEFINE ("Lab2");
+
+static std::ofstream cwndFile; //file to store the log, later used for plotting
+
+class MyApp : public Application
+{
+public:
+
+  MyApp ();
+  virtual ~MyApp();
+
+  void Setup (Ptr<Socket> socket, Address address, uint32_t packetSize, uint32_t nPackets, DataRate dataRate);
+  void ChangeRate(DataRate newrate);
+
+private:
+  virtual void StartApplication (void);
+  virtual void StopApplication (void);
+
+  void ScheduleTx (void);
+  void SendPacket (void);
+
+  Ptr<Socket>     m_socket;
+  Address         m_peer;
+  uint32_t        m_packetSize;
+  uint32_t        m_nPackets;
+  DataRate        m_dataRate;
+  EventId         m_sendEvent;
+  bool            m_running;
+  uint32_t        m_packetsSent;
+};
+
+MyApp::MyApp ()
+  : m_socket (0),
+    m_peer (),
+    m_packetSize (0),
+    m_nPackets (0),
+    m_dataRate (0),
+    m_sendEvent (),
+    m_running (false),
+    m_packetsSent (0)
+{
+}
+
+MyApp::~MyApp()
+{
+  m_socket = 0;
+}
+
+void
+MyApp::Setup (Ptr<Socket> socket, Address address, uint32_t packetSize, uint32_t nPackets, DataRate dataRate)
+{
+  m_socket = socket;
+  m_peer = address;
+  m_packetSize = packetSize;
+  m_nPackets = nPackets;
+  m_dataRate = dataRate;
+}
+
+void
+MyApp::StartApplication (void)
+{
+  m_running = true;
+  m_packetsSent = 0;
+  m_socket->Bind ();
+  m_socket->Connect (m_peer);
+  SendPacket ();
+}
+
+void
+MyApp::StopApplication (void)
+{
+  m_running = false;
+
+  if (m_sendEvent.IsRunning ())
+    {
+      Simulator::Cancel (m_sendEvent);
+    }
+
+  if (m_socket)
+    {
+      m_socket->Close ();
+    }
+}
+
+void
+MyApp::SendPacket (void)
+{
+  Ptr<Packet> packet = Create<Packet> (m_packetSize);
+  m_socket->Send (packet);
+
+  if (++m_packetsSent < m_nPackets) //if we can send more packets then schedule packets to be sent -> congestion control
+    {
+      ScheduleTx ();
+    }
+}
+
+void
+MyApp::ScheduleTx (void)
+{
+  if (m_running)
+    {
+      Time tNext (Seconds (m_packetSize * 8 / static_cast<double> (m_dataRate.GetBitRate ())));
+      m_sendEvent = Simulator::Schedule (tNext, &MyApp::SendPacket, this);
+    }
+}
+
+void
+MyApp::ChangeRate(DataRate newrate)
+{
+   m_dataRate = newrate;
+   return;
+}
+
+static void
+// CwndChange (Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
+CwndChange (uint32_t oldCwnd, uint32_t newCwnd)
+{
+  NS_LOG_UNCOND(Simulator::Now ().GetSeconds () << "\t" << newCwnd);
+  std::cout << Simulator::Now ().GetSeconds () << "\t" << newCwnd <<"\n"; //print old and new cwn to the screen
+  // *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldCwnd << "\t" << newCwnd << std::endl; //print old and new cwn to the screen
+}
+
+void
+IncRate (Ptr<MyApp> app, DataRate rate)
+{
+	app->ChangeRate(rate);
+    return;
+}
+
+//for plotting
+void CwndTracerToFile (uint32_t oldCwnd, uint32_t newCwnd) {
+  // static std::ofstream cwndFile;
+  if (!cwndFile.is_open()) {
+    cwndFile.open ("cwnd.dat");
+  }
+  cwndFile << Simulator::Now().GetSeconds() << " " << newCwnd << std::endl;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+int main (int argc, char *argv[])
+{
+  Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TypeId::LookupByName("ns3::TcpNewReno")));
+  std::string lat = "2ms";
+  std::string rate = "10Mb/s"; // P2P link
+  bool enableFlowMonitor = true; //need to change this to true -> line useless, may remove
+
+
+  CommandLine cmd;
+  cmd.AddValue ("latency", "P2P link Latency in miliseconds", lat);
+  cmd.AddValue ("rate", "P2P data rate in bps", rate);
+  cmd.AddValue ("EnableMonitor", "Enable Flow Monitor", enableFlowMonitor);
+
+  cmd.Parse (argc, argv);
+
+//
+// Explicitly create the nodes required by the topology (shown above).
+//
+  NS_LOG_INFO ("Create nodes.");
+  NodeContainer c; // ALL Nodes
+  c.Create(6);
+
+// Network topology
+//
+//       n0 ---+      +--- n2
+//             |      |
+//             n4 -- n5
+//             |      |
+//       n1 ---+      +--- n3
+//
+// - All links are P2P with 500kb/s and 2ms
+// - TCP flow form n0 to n2
+// - UDP flow from n1 to n3
+
+  NodeContainer n0n4 = NodeContainer (c.Get (0), c.Get (4));
+  NodeContainer n1n4 = NodeContainer (c.Get (1), c.Get (4));
+  NodeContainer n2n5 = NodeContainer (c.Get (2), c.Get (5));
+  NodeContainer n3n5 = NodeContainer (c.Get (3), c.Get (5));
+  NodeContainer n4n5 = NodeContainer (c.Get (4), c.Get (5));
+
+//
+// Install Internet Stack
+//
+  InternetStackHelper internet;
+  internet.Install (c);
+
+
+
+  // We create the channels first without any IP addressing information
+  NS_LOG_INFO ("Create channels.");
+  PointToPointHelper p2p;
+  p2p.SetDeviceAttribute ("DataRate", StringValue (rate));
+  p2p.SetChannelAttribute ("Delay", StringValue (lat));
+  NetDeviceContainer d0d4 = p2p.Install (n0n4);
+  NetDeviceContainer d1d4 = p2p.Install (n1n4);
+  NetDeviceContainer d4d5 = p2p.Install (n4n5);
+  NetDeviceContainer d2d5 = p2p.Install (n2n5);
+  NetDeviceContainer d3d5 = p2p.Install (n3n5);
+
+    // Later, we add IP addresses.
+  NS_LOG_INFO ("Assign IP Addresses.");
+  Ipv4AddressHelper ipv4;
+  ipv4.SetBase ("10.1.1.0", "255.255.255.0");
+  Ipv4InterfaceContainer i0i4 = ipv4.Assign (d0d4);
+
+  ipv4.SetBase ("10.1.2.0", "255.255.255.0");
+  Ipv4InterfaceContainer i1i4 = ipv4.Assign (d1d4);
+
+  ipv4.SetBase ("10.1.3.0", "255.255.255.0");
+  Ipv4InterfaceContainer i4i5 = ipv4.Assign (d4d5);
+
+  ipv4.SetBase ("10.1.4.0", "255.255.255.0");
+  Ipv4InterfaceContainer i2i5 = ipv4.Assign (d2d5);
+
+  ipv4.SetBase ("10.1.5.0", "255.255.255.0");
+  Ipv4InterfaceContainer i3i5 = ipv4.Assign (d3d5);
+
+  NS_LOG_INFO ("Enable static global routing.");
+  //
+  // Turn on global static routing so we can actually be routed across the network.
+  //
+  Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
+
+
+
+
+
+  NS_LOG_INFO ("Create Applications.");
+  // TCP connfection from N0 to N2
+
+// Network topology
+//
+//       n0 ---+      +--- n2
+//             |      |
+//             n4 -- n5
+//             |      |
+//       n1 ---+      +--- n3
+//
+// - All links are P2P with 500kb/s and 2ms
+// - TCP flow form n0 to n2
+// - UDP flow from n1 to n3
+
+  uint16_t sinkPort = 8080;
+  //https://www.nsnam.org/docs/release/3.18/doxygen/classns3_1_1_address.html#aa8e374f3910cdb0c28b3d49ed0e92d1d
+  Address sinkAddress (InetSocketAddress (i2i5.GetAddress (0), sinkPort)); // interface of n2
+  //https://www.nsnam.org/docs/release/3.29/doxygen/classns3_1_1_packet_sink_helper.html
+  //A helper to make it easier to instantiate an ns3::PacketSinkApplication on a set of nodes. 
+  // Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TcpNewReno::GetTypeId()));
+  PacketSinkHelper packetSinkHelper ("ns3::TcpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), sinkPort));
+  //https://www.nsnam.org/docs/release/3.29/doxygen/classns3_1_1_packet_sink_helper.html#a0808437e17663beb7c6a4a082d458115
+  //PacketSinkHelper.Install(): Install an ns3::PacketSinkApplication on each node of the input container configured with all the attributes set with SetAttribute. 
+  ApplicationContainer sinkApps = packetSinkHelper.Install (c.Get (2)); //n2 as sink -> sink is where packets will come to
+  sinkApps.Start (Seconds (0.));
+  sinkApps.Stop (Seconds (100.));
+
+  
+
+  //Ptr is a smart pointer class
+  //Change the line below to change TCP type to Reno or Tahoe
+  //https://www.nsnam.org/docs/models/html/tcp.html
+  Ptr<Socket> ns3TcpSocket = Socket::CreateSocket (c.Get (0),   TcpSocketFactory::GetTypeId()); //source at n0
+  //node0 will have a tcp socket now
+
+  // Trace Congestion window
+  // the TraceConnectWithoutContext, forms the connection between the trace source and the trace sink.
+  //https://www.nsnam.org/docs/tutorial/html/tracing.html
+  ns3TcpSocket->TraceConnectWithoutContext ("CongestionWindow", MakeCallback (&CwndChange));
+
+  //for plotting
+  // std::ofstream cwndFile;
+  cwndFile.open ("cwnd.dat");
+  ns3TcpSocket->TraceConnectWithoutContext ("CongestionWindow", MakeCallback (&CwndTracerToFile));
+
+
+  // Create TCP application at n0
+  Ptr<MyApp> app = CreateObject<MyApp> ();
+  app->Setup (ns3TcpSocket, sinkAddress, 1040, 100000, DataRate ("10Mbps"));
+  c.Get (0)->AddApplication (app);
+  app->SetStartTime (Seconds (1.));
+  app->SetStopTime (Seconds (100.));
+
+
+  // UDP connfection from N1 to N3
+
+  uint16_t sinkPort2 = 6;
+  Address sinkAddress2 (InetSocketAddress (i3i5.GetAddress (0), sinkPort2)); // interface of n3
+  PacketSinkHelper packetSinkHelper2 ("ns3::UdpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), sinkPort2));
+  ApplicationContainer sinkApps2 = packetSinkHelper2.Install (c.Get (3)); //n3 as sink
+  sinkApps2.Start (Seconds (0.));
+  sinkApps2.Stop (Seconds (100.));
+
+  Ptr<Socket> ns3UdpSocket = Socket::CreateSocket (c.Get (1), UdpSocketFactory::GetTypeId ()); //source at n1
+
+  // Create UDP application at n1
+  Ptr<MyApp> app2 = CreateObject<MyApp> ();
+  app2->Setup (ns3UdpSocket, sinkAddress2, 1040, 100000, DataRate ("250Kbps"));
+  c.Get (1)->AddApplication (app2);
+  app2->SetStartTime (Seconds (20.));
+  app2->SetStopTime (Seconds (100.));
+
+// Increase UDP Rate
+  Simulator::Schedule (Seconds(30.0), &IncRate, app2, DataRate("500kbps"));
+
+  // Flow Monitor: instantiate FlowMonitor here, after running the simulator use SerializeToXml
+  Ptr<FlowMonitor> flowmon;
+  FlowMonitorHelper flowmonHelper;
+  flowmon = flowmonHelper.InstallAll ();
+  // if (enableFlowMonitor)
+  //   {
+  //     //https://www.nsnam.org/docs/models/html/flow-monitor.html
+  //     FlowMonitorHelper flowmonHelper;
+  //     flowmon = flowmonHelper.InstallAll ();
+  //   }
+
+//
+// Now, do the actual simulation.
+//
+
+    // AsciiTraceHelper asciiTraceHelper;
+    // Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream("lab-2-tcp-output-byte-count.cwnd");
+    // ns3TcpSocket->TraceConnectWithoutContext("CongestionWindow",
+    //                                          MakeBoundCallback(&CwndChange, stream));
+
+
+  // FileHelper fileHelper;
+  // fileHelper.ConfigureFile ("lab-2-tcp-output-byte-count", FileAggregator::FORMATTED);
+  // fileHelper.WriteProbe ("ns3::DoubleProbe","/Names/Probe/Output","Output");
+
+
+
+
+  NS_LOG_INFO ("Run Simulation.");
+  Simulator::Stop (Seconds(100.0));
+  Simulator::Run ();
+  // if (enableFlowMonitor)
+  //   {
+	//   flowmon->CheckForLostPackets ();
+	//   flowmon->SerializeToXmlFile("lab-2-tcp.flowmon", true, true);
+  //   // std::cout << "XML file created!\n";
+  //   }
+
+  // giving error: 
+  flowmon->CheckForLostPackets ();
+  flowmon->SerializeToXmlFile("lab-2-tcp.flowmon", true, true);
+  std::cout << "XML file created!\n";
+
+
+  Simulator::Destroy ();
+  NS_LOG_INFO ("Done.");
+}
+
+
+
+
+
+
+
+
+
+
+#include "ns3/applications-module.h"
+#include "ns3/constant-position-mobility-model.h"
+#include "ns3/core-module.h"
+#include "ns3/csma-module.h"
+#include "ns3/flow-classifier.h"
+#include "ns3/flow-monitor-module.h"
+#include "ns3/flow-probe.h"
+#include "ns3/internet-module.h"
+#include "ns3/ipv4-global-routing-helper.h"
+#include "ns3/mobility-helper.h"
+#include "ns3/netanim-module.h"
+#include "ns3/network-module.h"
+#include "ns3/point-to-point-module.h"
+
+// Default Network Topology
+//
+//       10.1.1.0
+// n0 -------------- n1   n2   n3   n4
+//    point-to-point  |    |    |    |
+//                    ================
+//                      LAN 10.1.2.0
+
+using namespace ns3;
+
+NS_LOG_COMPONENT_DEFINE("SecondScriptExample");
+
+int
+main(int argc, char* argv[])
+{
+    bool verbose = true;
+    uint32_t nCsma = 3;
+
+    CommandLine cmd(__FILE__);
+    cmd.AddValue("nCsma", "Number of \"extra\" CSMA nodes/devices", nCsma);
+    cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
+
+    cmd.Parse(argc, argv);
+
+    if (verbose)
+    {
+        LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
+        LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
+    }
+
+    // nCsma = nCsma == 0 ? 1 : nCsma;
+
+    NodeContainer p2pNodes;
+    p2pNodes.Create(2);
+
+    NodeContainer csmaNodesNet1;
+    csmaNodesNet1.Add(p2pNodes.Get(0));
+    csmaNodesNet1.Create(3);
+
+    NodeContainer csmaNodesNet2;
+    csmaNodesNet2.Add(p2pNodes.Get(1));
+    csmaNodesNet2.Create(3);
+
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    mobility.Install(csmaNodesNet1);
+    mobility.Install(csmaNodesNet2);
+
+    PointToPointHelper pointToPoint;
+    pointToPoint.SetDeviceAttribute("DataRate", StringValue("5Mbps"));
+    pointToPoint.SetChannelAttribute("Delay", StringValue("2ms"));
+
+    NetDeviceContainer p2pDevices;
+    p2pDevices = pointToPoint.Install(p2pNodes);
+
+    CsmaHelper csma;
+    csma.SetChannelAttribute("DataRate", StringValue("100Mbps"));
+    csma.SetChannelAttribute("Delay", TimeValue(NanoSeconds(6560)));
+
+    NetDeviceContainer csmaDevices1;
+    csmaDevices1 = csma.Install(csmaNodesNet1);
+
+    NetDeviceContainer csmaDevices2;
+    csmaDevices2 = csma.Install(csmaNodesNet2);
+
+    InternetStackHelper stack;
+    stack.Install(csmaNodesNet1);
+    stack.Install(csmaNodesNet2);
+
+    Ipv4AddressHelper address;
+    address.SetBase("10.1.3.0", "255.255.255.0");
+    Ipv4InterfaceContainer p2pInterfaces;
+    p2pInterfaces = address.Assign(p2pDevices);
+
+    address.SetBase("10.1.1.0", "255.255.255.0");
+    Ipv4InterfaceContainer csmaInterfaces1;
+    csmaInterfaces1 = address.Assign(csmaDevices1);
+
+    address.SetBase("10.1.2.0", "255.255.255.0");
+    Ipv4InterfaceContainer csmaInterfaces2;
+    csmaInterfaces2 = address.Assign(csmaDevices2);
+
+    UdpEchoServerHelper echoServer(9);
+
+    ApplicationContainer serverApps = echoServer.Install(csmaNodesNet1.Get(1));
+    serverApps.Start(Seconds(1.0));
+    serverApps.Stop(Seconds(10.0));
+
+    UdpEchoClientHelper echoClient(csmaInterfaces1.GetAddress(1), 9);
+    echoClient.SetAttribute("MaxPackets", UintegerValue(1));
+    echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
+    echoClient.SetAttribute("PacketSize", UintegerValue(1024));
+
+    ApplicationContainer clientApps = echoClient.Install(csmaNodesNet2.Get(1));
+    clientApps.Start(Seconds(2.0));
+    clientApps.Stop(Seconds(10.0));
+
+    Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+
+    pointToPoint.EnablePcapAll("second");
+    csma.EnablePcap("second", csmaDevices1.Get(1), true);
+
+    AnimationInterface anim("animation.xml");
+
+    Ptr<ConstantPositionMobilityModel> n1 =
+        csmaNodesNet1.Get(0)->GetObject<ConstantPositionMobilityModel>();
+    Ptr<ConstantPositionMobilityModel> n2 =
+        csmaNodesNet1.Get(1)->GetObject<ConstantPositionMobilityModel>();
+    Ptr<ConstantPositionMobilityModel> n3 =
+        csmaNodesNet1.Get(2)->GetObject<ConstantPositionMobilityModel>();
+    Ptr<ConstantPositionMobilityModel> n4 =
+        csmaNodesNet1.Get(3)->GetObject<ConstantPositionMobilityModel>();
+    Ptr<ConstantPositionMobilityModel> n5 =
+        csmaNodesNet2.Get(0)->GetObject<ConstantPositionMobilityModel>();
+    Ptr<ConstantPositionMobilityModel> n6 =
+        csmaNodesNet2.Get(1)->GetObject<ConstantPositionMobilityModel>();
+    Ptr<ConstantPositionMobilityModel> n7 =
+        csmaNodesNet2.Get(2)->GetObject<ConstantPositionMobilityModel>();
+    Ptr<ConstantPositionMobilityModel> n8 =
+        csmaNodesNet2.Get(3)->GetObject<ConstantPositionMobilityModel>();
+
+    n1->SetPosition(Vector(30.0, 20.0, 0));
+    n2->SetPosition(Vector(10.0, 10.0, 0));
+    n3->SetPosition(Vector(10.0, 20.0, 0));
+    n4->SetPosition(Vector(10.0, 30.0, 0));
+    n5->SetPosition(Vector(60.0, 20.0, 0));
+    n6->SetPosition(Vector(90.0, 10.0, 0));
+    n7->SetPosition(Vector(90.0, 20.0, 0));
+    n8->SetPosition(Vector(90.0, 30.0, 0));
+
+    FlowMonitorHelper flowmon;
+    Ptr<FlowMonitor> monitor = flowmon.InstallAll();
+
+    Simulator::Stop(Seconds(10.0));
+    Simulator::Run();
+
+    monitor->SerializeToXmlFile("prac1.xml", true, true);
+
+    Simulator::Destroy();
+    return 0;
+}
+
+
+
+
+
+
